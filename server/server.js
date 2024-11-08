@@ -13,11 +13,19 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Регистрация пользователя
-app.post('/register', async (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { name, email, password } = req.body;
+
   try {
-    // Попытка создания пользователя
-    await db.query('INSERT INTO users (name, email, password) VALUES (?, ?, ?)', [name, email, password]);
+    // Хешируем пароль перед сохранением
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Сохраняем пользователя с хешированным паролем в базе данных
+    await db.query(
+      'INSERT INTO users (name, email, password) VALUES (?, ?, ?)',
+      [name, email, hashedPassword]
+    );
+
     res.status(200).json({ message: 'Регистрация прошла успешно!' });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -28,23 +36,24 @@ app.post('/register', async (req, res) => {
   }
 });
 
-
-
-// Вход в систему
-app.post('/login', async (req, res) => {
+// Авторизация пользователя
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
 
-  let requestToDb = await db.query(`SELECT * FROM users WHERE users.email='${email}'`);
-  let userData = requestToDb[0][0];
+  try {
+    const [rows] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
+    const userData = rows[0];
 
-  if (userData.password === password) {
-      // Генерация JWT токена
+    // Проверяем, найден ли пользователь и соответствует ли пароль
+    if (userData && await bcrypt.compare(password, userData.password)) {
+      // Генерируем токен
       const token = jwt.sign({ userId: userData.id }, JWT_SECRET, { expiresIn: '1h' });
-      return res.json({ token, message: 'Авторизация прошла успешно!' });
-  } else {
-    if (password !== user.password) {
-      return res.status(400).json({ message: 'Неверный email или пароль' });
+      res.json({ token, message: 'Авторизация прошла успешно!' });
+    } else {
+      res.status(400).json({ message: 'Неверный email или пароль' });
     }
+  } catch (error) {
+    res.status(500).json({ message: 'Ошибка на сервере, попробуйте позже.' });
   }
 });
 
